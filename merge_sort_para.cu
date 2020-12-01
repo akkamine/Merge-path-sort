@@ -5,7 +5,7 @@
 
 // Tableau de 12000 int max
 
-#define N 5000
+#define N 50
  
  __global__ void mergeSmall_k(int *A, int *B, int *M, const int sizeA, const int sizeB){
   
