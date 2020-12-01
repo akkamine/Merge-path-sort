@@ -76,7 +76,7 @@ int main(){
   cudaEventCreate(&stop);
 
 
-  for (int i = 0; i < N; i++) {
+  for (int i = 1; i < N+1; i++) {
     A[i] = i;
     B[i] = i+1;
   }
@@ -105,6 +105,7 @@ int main(){
   printf("staticReverse: temps écoulé = %f secs\n", time/1000);
 
   cudaMemcpy(M, M_gpu, 2*N*sizeof(int), cudaMemcpyDeviceToHost);
+  
   for (int i = 0; i < 10; i++)
     printf("M[%d] = %d\n", i, M[i]);
   
