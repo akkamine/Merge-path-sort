@@ -32,9 +32,9 @@ int main(int argc, char const *argv[]) {
   }
 
   for(i=0; i<m; i++){
-    printf("%d\n", res[i]);
+    printf("%d ", res[i]);
   }
-
+  printf("\n");
 
   return 0;
 }
