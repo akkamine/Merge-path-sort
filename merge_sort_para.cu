@@ -76,9 +76,9 @@ int main(){
   cudaEventCreate(&stop);
 
 
-  for (int i = 1; i < N+1; i++) {
-    A[i] = i;
-    B[i] = i+1;
+  for (int i = 0; i < N; i++) {
+    A[i] = 4;
+    B[i] = 5;
   }
 
   int *A_gpu;
