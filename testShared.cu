@@ -13,7 +13,7 @@ __global__ void staticReverse(int *d, int n)
   __syncthreads();
 
   d[t] = s[tr];
-
+}
 
 __global__ void dynamicReverse(int *d, int n)
 {
