@@ -25,6 +25,7 @@ int main(void)
   const int n = 1024;
   int a[n], r[n], d[n];
 
+  float time= 0.;
   cudaEvent_t start, stop;
   cudaEventCreate(&start);
   cudaEventCreate(&stop);
