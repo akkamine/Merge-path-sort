@@ -6,9 +6,9 @@
 
 __global__ void staticReverse(int *d, int n)
 {
-  __shared__ int s[n];
+  __shared__ int s[N];
   int t = threadIdx.x + blockIdx.x * blockDim.x;
-  int tr = n-t-1;
+  int tr = N-t-1;
   s[t] = d[t];
   __syncthreads();
   d[t] = s[tr];
@@ -18,7 +18,7 @@ __global__ void dynamicReverse(int *d, int n)
 {
   extern __shared__ int s[];
   int t = threadIdx.x + blockIdx.x * blockDim.x;
-  int tr = n-t-1;
+  int tr = N-t-1;
   s[t] = d[t];
   __syncthreads();
   d[t] = s[tr];
