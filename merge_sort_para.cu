@@ -79,6 +79,7 @@ int main(){
   for (int i = 0; i < N; i++) {
     A[i] = 4;
     B[i] = 5;
+    M[i] = 1;
   }
 
   int *A_gpu;
@@ -92,6 +93,7 @@ int main(){
   // run version with static shared memory
   cudaMemcpy(A_gpu, A, N*sizeof(int), cudaMemcpyHostToDevice);
   cudaMemcpy(B_gpu, B, N*sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(M_gpu, M, 2*N*sizeof(int), cudaMemcpyHostToDevice);
 
   cudaEventRecord(start);
 
