@@ -13,13 +13,13 @@ __global__ void mergeSmall_k(int *a, int *b, int *m, int sizeA, int sizeB){
 
   int i = threadIdx.x + blockIdx.x * blockDim.x;
 
-  __shared__ int sA [sizeA];
-  __shared__ int sB [sizeB];
+  __shared__ int sA [N];
+  __shared__ int sB [N];
 
   sA[i] = a[i];
   sB[i] = b[i];
 
-  __synchthreads();
+  __syncthreads();
 
   if(i<2*N){
 
@@ -33,11 +33,11 @@ __global__ void mergeSmall_k(int *a, int *b, int *m, int sizeA, int sizeB){
     }
 
     while(1){
-      offset = abs(K[1]-P[1])/2;
+      int offset = abs(K[1]-P[1])/2;
       Q[0] = K[0] + offset;
       Q[1] = K[1] - offset;
 
-      if(Q[1] >= 0 && Q[0] <= sizeB && (Q[1] = sizeA || Q[0] == 0 || sA[ Q[1] ] > sB[ Q[0]-1 ]){
+      if(Q[1] >= 0 && Q[0] <= sizeB && (Q[1] = sizeA || Q[0] == 0 || sA[ Q[1] ] > sB[ Q[0]-1 ]) ){
         if(Q[0] == sizeB || Q[1] == 0 || sA[ Q[1]-1 ] <= sB[ Q[0] ]){
           if(Q[1] < sizeA && (Q[0] == sizeB || sA[ Q[1] ] <= sB[ Q[0] ])){
             M[i] = sA[ Q[1] ];
@@ -62,7 +62,9 @@ __global__ void mergeSmall_k(int *a, int *b, int *m, int sizeA, int sizeB){
 
 int main(void)
 {
-  int A[N], B[N], M[N];
+  int A[N];
+  int B[N];
+  int M[N];
 
   float time= 0.;
   cudaEvent_t start, stop;
@@ -90,7 +92,7 @@ int main(void)
   cudaEventRecord(start);
 
   int nb_block = (N+NTPB-1)/NTPB;
-  mergeSmall_k<<<nb_block,NTPB>>>(A, B, N, N);
+  mergeSmall_k<<<nb_block,NTPB>>>(A, B, M, N, N);
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
