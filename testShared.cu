@@ -1,9 +1,13 @@
 #include <stdio.h>
 
+#define N 100000000
+#define NTPB 1024
+
+
 __global__ void staticReverse(int *d, int n)
 {
-  __shared__ int s[64];
-  int t = threadIdx.x;
+  __shared__ int s[n];
+  int t = threadIdx.x + blockIdx.x * blockDim.x;
   int tr = n-t-1;
   s[t] = d[t];
   __syncthreads();
@@ -13,7 +17,7 @@ __global__ void staticReverse(int *d, int n)
 __global__ void dynamicReverse(int *d, int n)
 {
   extern __shared__ int s[];
-  int t = threadIdx.x;
+  int t = threadIdx.x + blockIdx.x * blockDim.x;
   int tr = n-t-1;
   s[t] = d[t];
   __syncthreads();
@@ -22,8 +26,7 @@ __global__ void dynamicReverse(int *d, int n)
 
 int main(void)
 {
-  const int n = 1024;
-  int a[n], r[n], d[n];
+  int a[N], r[N], d[N];
 
   float time= 0.;
   cudaEvent_t start, stop;
@@ -31,21 +34,22 @@ int main(void)
   cudaEventCreate(&stop);
 
 
-  for (int i = 0; i < n; i++) {
+  for (int i = 0; i < N; i++) {
     a[i] = i;
-    r[i] = n-i-1;
+    r[i] = N-i-1;
     d[i] = 0;
   }
 
   int *d_d;
-  cudaMalloc(&d_d, n * sizeof(int));
+  cudaMalloc(&d_d, N* sizeof(int));
 
   // run version with static shared memory
-  cudaMemcpy(d_d, a, n*sizeof(int), cudaMemcpyHostToDevice);
+  cudaMemcpy(d_d, a, N*sizeof(int), cudaMemcpyHostToDevice);
 
   cudaEventRecord(start);
 
-  staticReverse<<<1,n>>>(d_d, n);
+  int nb_block = (N+NTPB-1)/NTPB;
+  staticReverse<<<nb_block,NTPB>>>(d_d, N);
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
@@ -53,15 +57,15 @@ int main(void)
   cudaEventElapsedTime(&time, start, stop);
   printf("staticReverse: temps écoulé = %f secs\n", time/1000);
 
-  cudaMemcpy(d, d_d, n*sizeof(int), cudaMemcpyDeviceToHost);
-  for (int i = 0; i < n; i++)
+  cudaMemcpy(d, d_d, N*sizeof(int), cudaMemcpyDeviceToHost);
+  for (int i = 0; i < N; i++)
     if (d[i] != r[i]) printf("Error: d[%d]!=r[%d] (%d, %d)\n", i, i, d[i], r[i]);
 
-  // run dynamic shared memory version
-  cudaMemcpy(d_d, a, n*sizeof(int), cudaMemcpyHostToDevice);
+  // ruNdynamic shared memory version
+  cudaMemcpy(d_d, a, N*sizeof(int), cudaMemcpyHostToDevice);
   cudaEventRecord(start);
 
-  dynamicReverse<<<1,n,n*sizeof(int)>>>(d_d, n);
+  dynamicReverse<<<nb_block,NTPB>>>(d_d, N);
 
   cudaEventRecord(stop);
   cudaEventSynchronize(stop);
@@ -69,7 +73,11 @@ int main(void)
   cudaEventElapsedTime(&time, start, stop);
   printf("dynamicReverse: temps écoulé = %f secs\n", time/1000);
 
-  cudaMemcpy(d, d_d, n * sizeof(int), cudaMemcpyDeviceToHost);
-  for (int i = 0; i < n; i++)
+  cudaMemcpy(d, d_d, N* sizeof(int), cudaMemcpyDeviceToHost);
+  for (int i = 0; i < N; i++)
     if (d[i] != r[i]) printf("Error: d[%d]!=r[%d] (%d, %d)\n", i, i, d[i], r[i]);
+
+  cudaFree(d_d);
+  cudaEventDestroy(start);
+  cudaEventDestroy(stop);
 }
