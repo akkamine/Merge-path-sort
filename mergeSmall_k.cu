@@ -102,7 +102,6 @@ int main(void){
 	printf("mergeSmall_k: temps écoulé = %f secs\n", time/1000);
 
 
-
 	cudaMemcpy(M, M_gpu, 2*N*sizeof(int), cudaMemcpyDeviceToHost);
 	//for (int i = 0; i < 2*N; i++)
 	//	printf("M[%d] = %d\n", i, M[i]);
