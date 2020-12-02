@@ -1,28 +1,26 @@
 #include <stdio.h>
 
-#define N 6144
+#define N 100000000
 #define NTPB 1024
 
 
 __global__ void staticReverse(int *d, int n)
 {
-  __shared__ int s[N];
+  __shared__ int s[n];
   int t = threadIdx.x + blockIdx.x * blockDim.x;
-  int tr = N-t-1;
+  int tr = n-t-1;
   s[t] = d[t];
   __syncthreads();
-
   d[t] = s[tr];
-
+}
 
 __global__ void dynamicReverse(int *d, int n)
 {
   extern __shared__ int s[];
   int t = threadIdx.x + blockIdx.x * blockDim.x;
-  int tr = N-t-1;
+  int tr = n-t-1;
   s[t] = d[t];
   __syncthreads();
-
   d[t] = s[tr];
 }
 
