@@ -9,7 +9,7 @@
  
  __global__ void mergeSmall_k(int *A, int *B, int *M, const int sizeA, const int sizeB){
   
-   int i = threadIdx.x + blockIdx.x * blockDim.x;
+   const int i = threadIdx.x + blockIdx.x * blockDim.x;
    
   __shared__ int sA[N];
   __shared__ int sB[N];
