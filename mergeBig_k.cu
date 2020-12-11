@@ -6,6 +6,9 @@
 #define N_THREADS 2
 #define N_BLOCKS 64
 
+#define sizeA 65536
+#define sizeB 65536
+
 #define X 0
 #define Y 1
 
@@ -13,7 +16,7 @@
 /************* PATH BIG K ********************/
 /*********************************************/
 
-__global__ void pathBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int sizeA, int sizeB){
+__global__ void pathBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex){
     // cette fonction permet de construire Aindex, Bindex
     // Aindex et Bindex sont stockés en mémoire globale
     // ils permettent de stocker les points de ruptures entre threads
@@ -73,7 +76,7 @@ __global__ void pathBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int 
 /************* MERGE BIG K ********************/
 /**********************************************/
 
-__global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int sizeA, int sizeB){
+__global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex){
 	__shared__ int biaisA;
 	__shared__ int biaisB;
     
@@ -200,8 +203,6 @@ __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int
 }
 
 int main(void){
-    int sizeA = 65536;
-    int sizeB = 65536; // 1024 * 64
     
 	int *A;
 	int *B;
@@ -243,9 +244,9 @@ int main(void){
 	cudaEventRecord(start);
     
     // recherche du découpage 
-    pathBig_k<<<N_BLOCKS, 1>>>(A_gpu, B_gpu, M_gpu, Aindex, Bindex, sizeA, sizeB);
+    pathBig_k<<<N_BLOCKS, 1>>>(A_gpu, B_gpu, M_gpu, Aindex, Bindex);
     
-    mergeBig_k<<<N_BLOCKS, N_THREADS>>>(A_gpu, B_gpu, M_gpu, Aindex, Bindex, sizeA, sizeB);
+    mergeBig_k<<<N_BLOCKS, N_THREADS>>>(A_gpu, B_gpu, M_gpu, Aindex, Bindex);
 
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
