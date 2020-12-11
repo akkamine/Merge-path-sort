@@ -74,7 +74,8 @@ __global__ void pathBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int 
 /**********************************************/
 
 __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int sizeA, int sizeB){
-    
+	__shared__ int biaisA;
+	__shared__ int biaisB;
     
 	int K[2];
 	int P[2];
@@ -134,7 +135,7 @@ __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int
 		int sizeSB = endB-startB - biaisB;
 		if (sizeSA < 0)
 			sizeSA = 0;
-		if (sizeSA > blockDim.x && sizeSAd != 0)
+		if (sizeSA > blockDim.x && sizeSA != 0)
 			sizeSA = blockDim.x;
 		if (sizeSB < 0)
 			sizeSB = 0;
@@ -231,7 +232,7 @@ int main(void){
 	cudaEventRecord(start);
     
     // recherche du découpage 
-    pathBig_k<<<N_BLOCKS, 1>>>(A_gpu, B_gpu, Aindex, Bindex, sizeA, sizeB);
+    pathBig_k<<<N_BLOCKS, 1>>>(A_gpu, B_gpu, M_gpu, Aindex, Bindex, sizeA, sizeB);
     
     mergeBig_k<<<N_BLOCKS, N_THREADS>>>(A_gpu, B_gpu, M_gpu, Aindex, Bindex, sizeA, sizeB);
 
