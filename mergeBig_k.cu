@@ -3,7 +3,7 @@
 #include <stdio.h>
 
 
-#define N_THREADS 1024
+#define N_THREADS 2
 #define N_BLOCKS 64
 
 #define X 0
@@ -146,8 +146,8 @@ __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int
 }
 
 int main(void){
-    int sizeA = 1024;
-    int sizeB = 1024;
+    int sizeA = 65536;
+    int sizeB = 65536; // 1024 * 64
     
 	int *A;
 	int *B;
