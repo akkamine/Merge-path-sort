@@ -4,8 +4,8 @@
 
 #define X 0
 #define Y 1
-#define SIZEA 65536
-#define SIZEB 65336
+#define SIZEA 1024
+#define SIZEB 1024
 
 #define N_BLOCKS 64
 #define N_THREADS 2
