@@ -93,7 +93,8 @@ __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int
 
 	__shared__ int sA[1024]; 
 	__shared__ int sB[1024];
-    
+
+/*
     if(blockIdx.x == N_BLOCKS - 1){
         sA[local_i % sizeSA] = a[i%sizeA];
         sB[local_i % sizeSB] = b[i % sizeB];
@@ -105,7 +106,8 @@ __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int
         if(Bindex[blockIdx.x] <= i <= Bindex[blockIdx.x + 1])
             sB[local_i] = b[i];
     }
-    
+*/
+
 	int startA, endA;
 	int startB, endB;
     
@@ -130,7 +132,16 @@ __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int
     
     do{    
         __syncthreads();
+ 
+		if (startA + biaisA + threadIdx.x < endA){
+			sA[local_i] = a[startA + biaisA + local_i];
+		}
+
+		if (startB + biaisB + threadIdx.x < endB){
+			sB[local_i] = b[startB + biaisB + local_i];	
+		}
         
+        __syncthreads();
 		int sizeSA = endA-startA - biaisA;
 		int sizeSB = endB-startB - biaisB;
 		if (sizeSA < 0)
@@ -142,46 +153,46 @@ __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int
 		if (sizeSB > blockDim.x && sizeSB != 0)
 			sizeSB = blockDim.x;
         
-        if(local_i >= sizeSA + sizeSB)
-            return;
-        
-        if(local_i > sizeSA){
-            K[X] = local_i - sizeSA;
-            K[Y] = sizeSA;
-            P[X] = sizeSA;
-            P[Y] = local_i - sizeSA;
-        }
-        else{
-            K[X] = 0;       K[Y] = local_i;
-            P[X] = local_i; P[Y] = 0;
-        }
+        if(local_i < sizeSA + sizeSB){
 
-        while(1){
-
-            int offset = (K[1]-P[1])/2;
-            Q[X] = K[X] + offset;
-            Q[Y] = K[Y] - offset;
-
-            if(Q[Y] >= 0 && Q[X] <= sizeSB && (Q[Y] == sizeSA || Q[X] == 0 || sA[ Q[Y] ] > sB[ Q[X]-1 ]) ){
-                if(Q[X] == sizeSB || Q[Y] == 0 || sA[ Q[Y]-1 ] <= sB[ Q[X] ]){
-                        if(Q[Y] < sizeSA && (Q[X] == sizeSB || sA[ Q[Y] ] <= sB[ Q[X] ])){
-                            m[i] = sA[Q[Y]] ;
-                            atomicAdd(&biaisA, 1);
-                        }
-                        else{
-                            m[i] = sB[Q[X]];
-                            atomicAdd(&biaisB, 1);
-                        }
-                        break;
-                }
-                else{
-                    K[X] = Q[X] + 1;
-                    K[Y] = Q[Y] - 1;
-                }
+            if(local_i > sizeSA){
+                K[X] = local_i - sizeSA;
+                K[Y] = sizeSA;
+                P[X] = sizeSA;
+                P[Y] = local_i - sizeSA;
             }
             else{
-                P[X] = Q[X] - 1;
-                P[Y] = Q[Y] + 1;
+                K[X] = 0;       K[Y] = local_i;
+                P[X] = local_i; P[Y] = 0;
+            }
+
+            while(1){
+
+                int offset = (K[1]-P[1])/2;
+                Q[X] = K[X] + offset;
+                Q[Y] = K[Y] - offset;
+
+                if(Q[Y] >= 0 && Q[X] <= sizeSB && (Q[Y] == sizeSA || Q[X] == 0 || sA[ Q[Y] ] > sB[ Q[X]-1 ]) ){
+                    if(Q[X] == sizeSB || Q[Y] == 0 || sA[ Q[Y]-1 ] <= sB[ Q[X] ]){
+                            if(Q[Y] < sizeSA && (Q[X] == sizeSB || sA[ Q[Y] ] <= sB[ Q[X] ])){
+                                m[i] = sA[Q[Y]] ;
+                                atomicAdd(&biaisA, 1);
+                            }
+                            else{
+                                m[i] = sB[Q[X]];
+                                atomicAdd(&biaisB, 1);
+                            }
+                            break;
+                    }
+                    else{
+                        K[X] = Q[X] + 1;
+                        K[Y] = Q[Y] - 1;
+                    }
+                }
+                else{
+                    P[X] = Q[X] - 1;
+                    P[Y] = Q[Y] + 1;
+                }
             }
         }
         iter ++;
@@ -254,6 +265,8 @@ int main(void){
 	cudaFree(A_gpu);
 	cudaFree(B_gpu);
 	cudaFree(M_gpu);
+	cudaFree(Aindex);
+	cudaFree(Bindex);
 	cudaEventDestroy(start);
 	cudaEventDestroy(stop);
 }
