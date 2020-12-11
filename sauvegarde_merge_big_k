@@ -3,8 +3,8 @@
 #include <stdio.h>
 
 
-#define N_THREADS 1024
-#define N_BLOCKS 64
+#define N_THREADS 512
+#define N_BLOCKS 1024
 
 #define X 0
 #define Y 1
@@ -20,8 +20,12 @@ __global__ void pathBig_k(int *a, int *b, int *Aindex, int *Bindex, int sizeA, i
     
     // cette fonction est exécutée par un seul thread par block
     
+    // cette fonction n'est pas exécutée par le dernier block
+    if(blockIdx.x == N_BLOCKS-1)
+        return;
+    
     // i prend la valeur de cette diagonale
-    const int i = (sizeA+sizeB)/N_BLOCKS * blockIdx.x;
+    const int i = (sizeA+sizeB)/N_BLOCKS * (blockIdx.x + 1);
     
 	int K[2];
 	int P[2];
@@ -68,93 +72,87 @@ __global__ void pathBig_k(int *a, int *b, int *Aindex, int *Bindex, int sizeA, i
 /**********************************************/
 
 __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int sizeA, int sizeB){
-    
-    
 	int K[2];
 	int P[2];
 	int Q[2];
 
 	const int i = threadIdx.x + blockIdx.x * blockDim.x;
     const int local_i = threadIdx.x;
+    
+	if(local_i>=(sizeSA + sizeSB))
+        return;
 
     // Taille des sous-tableaux de A et B stockés en mémoire shared du block
     int sizeSA = Aindex[blockIdx.x + 1] - Aindex[blockIdx.x];
     int sizeSB = Bindex[blockIdx.x + 1] - Bindex[blockIdx.x];
     
-	if(local_i>=(sizeSA + sizeSB))
-        return;
-
-	__shared__ int sharedMem[1024]; //de taille sizeSA + sizeSB
+	extern __shared__ int sharedMem[]; //de taille sizeSA + sizeSB
 	
 	int *sA = sharedMem;
     int *sB = sizeSA*sizeof(int) + sharedMem;
     
-    if(blockIdx.x == N_BLOCKS - 1){
+    if(blockIdx.x == ((sizeA+sizeB)/NTPB)-1 && local_i < sizeSA)
         sA[local_i % sizeSA] = a[i%sizeA];
-        sB[local_i % sizeSB] = b[i % sizeB];
-    }
-    
-    else{
+    else
         if(Aindex[blockIdx.x] <= i <= Aindex[blockIdx.x + 1])
-            sA[local_i] = a[i];
+            sA[local_i % sizeSA] = a[i%sizeA];
+    
+    if(blockIdx.x == ((sizeA+sizeB)/NTPB)-1 && local_i < sizeSB)
+        sB[local_i % sizeSB] = b[i%sizeB];
+    else
         if(Bindex[blockIdx.x] <= i <= Bindex[blockIdx.x + 1])
-            sB[local_i] = b[i];
-    }
+            sB[local_i % sizeSB] = b[i % sizeB];
     
     __syncthreads();
     
-    if(local_i >= sizeSA + sizeSB)
-        return;
-    
     if(local_i>sizeSA){
-        K[X] = local_i - sizeSA;
-        K[Y] = sizeSA;
-        P[X] = sizeSA;
-        P[Y] = local_i - sizeSA;
+        K[0] = local_i - sizeSA;
+        K[1] = sizeSA;
+        P[0] = sizeSA;
+        P[1] = local_i - sizeSA;
     }
     else{
-        K[X] = 0;       K[Y] = local_i;
-        P[X] = local_i; P[Y] = 0;
+        K[0] = 0; K[1] = local_i;
+        P[0] = local_i; P[1] = 0;
     }
 
     while(1){
 
         int offset = (K[1]-P[1])/2;
-        Q[X] = K[X] + offset;
-        Q[Y] = K[Y] - offset;
+        Q[0] = K[0] + offset;
+        Q[1] = K[1] - offset;
 
-        if(Q[Y] >= 0 && Q[X] <= sizeSB && (Q[Y] == sizeSA || Q[X] == 0 || sA[ Q[Y] ] > sB[ Q[X]-1 ]) ){
-            if(Q[X] == sizeSB || Q[Y] == 0 || sA[ Q[Y]-1 ] <= sB[ Q[X] ]){
-					if(Q[Y] < sizeSA && (Q[X] == sizeSB || sA[ Q[Y] ] <= sB[ Q[X] ])){
-                        m[i] = sA[Q[Y]] ;
+        if(Q[1] >= 0 && Q[0] <= sizeSB && (Q[1] == sizeSA || Q[0] == 0 || sA[ Q[1] ] > sB[ Q[0]-1 ]) ){
+            if(Q[0] == sizeSB || Q[1] == 0 || sA[ Q[1]-1 ] <= sB[ Q[0] ]){
+					if(Q[1] < sizeSA && (Q[0] == sizeSB || sA[ Q[1] ] <= sB[ Q[0] ])){
+                        m[i] = sA[Q[1]] ;
 		  			}
 		  			else{
-						m[i] = sB[Q[X]];
+						m[i] = sB[Q[0]];
 		  			}
 		  			break;
             }
             else{
-                K[X] = Q[X] + 1;
-                K[Y] = Q[Y] - 1;
+                K[0] = Q[0] + 1;
+                K[1] = Q[1] - 1;
             }
         }
         else{
-            P[X] = Q[X] - 1;
-            P[Y] = Q[Y] + 1;
+            P[0] = Q[0] - 1;
+            P[1] = Q[1] + 1;
         }
     }
 }
 
 int main(void){
-    int sizeA = 1024;
-    int sizeB = 1024;
+    int sizeA = N;
+    int sizeB = N;
     
 	int *A;
 	int *B;
 	int *M;
-	//int nb_blocks = (N+NTPB-1)/NTPB; // A vérifier
-    int nb_blocks = N_BLOCKS;
-    
+	int nb_blocks = (N+NTPB-1)/NTPB; // A vérifier
+
 	float time= 0.;
 	cudaEvent_t start, stop;
 	cudaEventCreate(&start);
@@ -191,17 +189,16 @@ int main(void){
     // recherche du découpage 
     pathBig_k<<<N_BLOCKS, 1>>>(A_gpu, B_gpu, Aindex, Bindex, sizeA, sizeB);
     
-    mergeBig_k<<<N_BLOCKS, N_THREADS>>>(A_gpu, B_gpu, M_gpu, Aindex, Bindex, sizeA, sizeB);
+    mergeBig_k<<<N_BLOCK, N_THREAD>>>(A_gpu, B_gpu, M_gpu, Aindex, Bindex, sizeA, sizeB);
 
 	cudaEventRecord(stop);
 	cudaEventSynchronize(stop);
 	cudaEventElapsedTime(&time, start, stop);
-	printf("mergeBig_k: temps écoulé = %f secs\n", time/1000);
+	printf("mergeSmall_k: temps écoulé = %f secs\n", time/1000);
 
 
-	cudaMemcpy(M, M_gpu, (sizeA+sizeB)*sizeof(int), cudaMemcpyDeviceToHost);
-    
-	for (int i = 0; i < (sizeA+sizeB); i++)
+	cudaMemcpy(M, M_gpu, 2*N*sizeof(int), cudaMemcpyDeviceToHost);
+	for (int i = 0; i < 2*N; i++)
         printf("M[%d] = %d\n", i, M[i]);
 
 
