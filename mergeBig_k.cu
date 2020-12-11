@@ -13,7 +13,7 @@
 /************* PATH BIG K ********************/
 /*********************************************/
 
-__global__ void pathBig_k(int *a, int *b, int *Aindex, int *Bindex, int sizeA, int sizeB){
+__global__ void pathBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int sizeA, int sizeB){
     // cette fonction permet de construire Aindex, Bindex
     // Aindex et Bindex sont stockés en mémoire globale
     // ils permettent de stocker les points de ruptures entre threads
@@ -46,6 +46,12 @@ __global__ void pathBig_k(int *a, int *b, int *Aindex, int *Bindex, int sizeA, i
 
         if(Q[Y] >= 0 && Q[X] <= sizeB && (Q[Y] == sizeA || Q[X] == 0 || a[ Q[Y] ] > b[ Q[X]-1 ]) ){
             if(Q[X] == sizeB || Q[Y] == 0 || a[ Q[Y]-1 ] <= b[ Q[X] ]){
+				if (Q[Y] < sizeA && (Q[X] == sizeB || a[Q[Y]] <= b[Q[X]]) ) {
+					m[i] = a[Q[Y]];
+				}
+				else {
+					m[i] = b[Q[X]];
+				}
                 Aindex[blockIdx.x] = Q[Y];
                 Bindex[blockIdx.x] = Q[X];
                 break;
@@ -84,10 +90,8 @@ __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int
 	if(local_i>=(sizeSA + sizeSB))
         return;
 
-	__shared__ int sharedMem[1024]; //de taille sizeSA + sizeSB
-	
-	int *sA = sharedMem;
-    int *sB = sizeSA*sizeof(int) + sharedMem;
+	__shared__ int sA[1024]; 
+	__shared__ int sB[1024];
     
     if(blockIdx.x == N_BLOCKS - 1){
         sA[local_i % sizeSA] = a[i%sizeA];
@@ -101,48 +105,86 @@ __global__ void mergeBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex, int
             sB[local_i] = b[i];
     }
     
-    __syncthreads();
+	int startA, endA;
+	int startB, endB;
     
-    if(local_i >= sizeSA + sizeSB)
-        return;
+    if (blockIdx.x == N_BLOCKS-1){
+		startA = Aindex[blockIdx.x];
+		endA = sizeA;
+		startB = Bindex[blockIdx.x];
+		endB = sizeB;
+	}
+	else{
+		startA = Aindex[blockIdx.x];
+		endA = Aindex[blockIdx.x + 1];
+		startB = Bindex[blockIdx.x];
+		endB = Bindex[blockIdx.x + 1];
+	}
     
-    if(local_i>sizeSA){
-        K[X] = local_i - sizeSA;
-        K[Y] = sizeSA;
-        P[X] = sizeSA;
-        P[Y] = local_i - sizeSA;
-    }
-    else{
-        K[X] = 0;       K[Y] = local_i;
-        P[X] = local_i; P[Y] = 0;
-    }
+	int iter_max = (blockDim.x - 1 + (endB-startB) + (endA-startA)) / blockDim.x;
+	int iter = 0;
 
-    while(1){
-
-        int offset = (K[1]-P[1])/2;
-        Q[X] = K[X] + offset;
-        Q[Y] = K[Y] - offset;
-
-        if(Q[Y] >= 0 && Q[X] <= sizeSB && (Q[Y] == sizeSA || Q[X] == 0 || sA[ Q[Y] ] > sB[ Q[X]-1 ]) ){
-            if(Q[X] == sizeSB || Q[Y] == 0 || sA[ Q[Y]-1 ] <= sB[ Q[X] ]){
-					if(Q[Y] < sizeSA && (Q[X] == sizeSB || sA[ Q[Y] ] <= sB[ Q[X] ])){
-                        m[i] = sA[Q[Y]] ;
-		  			}
-		  			else{
-						m[i] = sB[Q[X]];
-		  			}
-		  			break;
-            }
-            else{
-                K[X] = Q[X] + 1;
-                K[Y] = Q[Y] - 1;
-            }
+	biaisA = 0;
+	biaisB = 0;
+    
+    do{    
+        __syncthreads();
+        
+		int sizeSA = endA-startA - biaisA;
+		int sizeSB = endB-startB - biaisB;
+		if (sizeSA < 0)
+			sizeSA = 0;
+		if (sizeSA > blockDim.x && sizeSAd != 0)
+			sizeSA = blockDim.x;
+		if (sizeSB < 0)
+			sizeSB = 0;
+		if (sizeSB > blockDim.x && sizeSB != 0)
+			sizeSB = blockDim.x;
+        
+        if(local_i >= sizeSA + sizeSB)
+            return;
+        
+        if(local_i > sizeSA){
+            K[X] = local_i - sizeSA;
+            K[Y] = sizeSA;
+            P[X] = sizeSA;
+            P[Y] = local_i - sizeSA;
         }
         else{
-            P[X] = Q[X] - 1;
-            P[Y] = Q[Y] + 1;
+            K[X] = 0;       K[Y] = local_i;
+            P[X] = local_i; P[Y] = 0;
         }
-    }
+
+        while(1){
+
+            int offset = (K[1]-P[1])/2;
+            Q[X] = K[X] + offset;
+            Q[Y] = K[Y] - offset;
+
+            if(Q[Y] >= 0 && Q[X] <= sizeSB && (Q[Y] == sizeSA || Q[X] == 0 || sA[ Q[Y] ] > sB[ Q[X]-1 ]) ){
+                if(Q[X] == sizeSB || Q[Y] == 0 || sA[ Q[Y]-1 ] <= sB[ Q[X] ]){
+                        if(Q[Y] < sizeSA && (Q[X] == sizeSB || sA[ Q[Y] ] <= sB[ Q[X] ])){
+                            m[i] = sA[Q[Y]] ;
+                            atomicAdd(&biaisA, 1);
+                        }
+                        else{
+                            m[i] = sB[Q[X]];
+                            atomicAdd(&biaisB, 1);
+                        }
+                        break;
+                }
+                else{
+                    K[X] = Q[X] + 1;
+                    K[Y] = Q[Y] - 1;
+                }
+            }
+            else{
+                P[X] = Q[X] - 1;
+                P[Y] = Q[Y] + 1;
+            }
+        }
+        iter ++;
+    } while(iter < iter_max);
 }
 
 int main(void){
