@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <math.h>
 
 #define X 0
 #define Y 1
@@ -26,24 +25,12 @@ __global__ void mergeBig_k(int *A, int *B, int *M, int *A_idx, int *B_idx){
 	int startB, endB;
 	
 	// On récupére les index du début et de la fin de A et B par rapport au tableau global
-	if (blockIdx.x == 0){
-		startA = 0;
-		endA = A_idx[blockIdx.x];
-		startB = 0;
-		endB = B_idx[blockIdx.x];
-	}
-	else if (blockIdx.x == N_BLOCKS-1){
-		startA = A_idx[blockIdx.x-1];
-		endA = SIZEA;
-		startB = B_idx[blockIdx.x-1];
-		endB = SIZEB;
-	}
-	else{
-		startA = A_idx[blockIdx.x-1];
-		endA = A_idx[blockIdx.x];
-		startB = B_idx[blockIdx.x-1];
-		endB = B_idx[blockIdx.x];
-	}
+
+    startA = A_idx[blockIdx.x];
+    endA = A_idx[blockIdx.x+1];
+    startB = B_idx[blockIdx.x];
+    endB = B_idx[blockIdx.x+1];
+	
 
 	// Notations de l'article
 	// Il y a N élements à fusioner
@@ -146,10 +133,7 @@ __global__ void pathBig_k(int *A, int *B, int *M, int *A_idx, int *B_idx){
 
 	// Dans ce kernel, on va simplement chercher N_BLOCKS diagonales
 	// de telle sorte que chaque bloc traitera N / N_BLOCKS elements dans le second kernel
-	int i = (SIZEA + SIZEB)/N_BLOCKS * (blockIdx.x + 1);
-	if (blockIdx.x == N_BLOCKS-1){
-		return;
-	}
+	int i = (SIZEA + SIZEB)/N_BLOCKS * blockIdx.x;
 
 	// Binary search
 	int K[2];
@@ -198,31 +182,6 @@ __global__ void pathBig_k(int *A, int *B, int *M, int *A_idx, int *B_idx){
 	}
 }
 
-
-__global__ void sortBig_k(int *a, int sizeA, int *Aindex, int *Bindex){
-    if(sizeA == 1)
-        return a;
-    if(sizeA == 2){
-        if(a[0] > a[1]){
-            int temp = a[1];
-            a[1] = a[0];
-            a[0] = temp;
-        }
-    }
-    sizeA0 = (int) sizeA/2;
-    sizeA1 = sizeA - sizeA0;
-    
-    sortBig_k(a, sizeA0);
-    sortBig_k(a + sizeA0, sizeA1);
-
-	cudaMemcpy(a0Device, a,          sizeA0 * sizeof(int), cudaMemcpyHostToDevice );
-	cudaMemcpy(a1Device, a + sizeA0, sizeA1 * sizeof(int), cudaMemcpyHostToDevice );
-    
-	pathBig_k<<<N_BLOCKS, 1>>>(a0Device, a1Device, mDevice, A_idxDevice, B_idxDevice);
-	mergeBig_k<<<N_BLOCKS, N_THREADS>>>(a0Device, a1Device, mDevice, A_idxDevice, B_idxDevice);
-    
-    cudaMemcpy(a, mDevice, (sizeA0 + sizeA1) * sizeof(int), cudaMemcpyDeviceToHost );
-
 int main(){
 
 	// Allocation de la mémoire, remplissage du tableau
@@ -236,8 +195,10 @@ int main(){
 	}
 	int mHost[SIZEA + SIZEB];		// Tableau merged	
 
-	int A_idx[N_BLOCKS];			// Merge path
-	int B_idx[N_BLOCKS];			// Merge path
+	int A_idx[N_BLOCKS+1];			// Merge path
+	int B_idx[N_BLOCKS+1];			// Merge path
+	A_idx[N_BLOCKS] = SIZEA - 1;
+    B_idx[N_BLOCKS] = SIZEB - 1;
 	int *aDevice, *bDevice, *mDevice, *A_idxDevice, *B_idxDevice;
 
 	// Allocation de la mémoire globale du GPU
@@ -250,6 +211,8 @@ int main(){
 	// Copier les tableaux vers le GPU
 	cudaMemcpy( aDevice, A, SIZEA * sizeof(int), cudaMemcpyHostToDevice );
 	cudaMemcpy( bDevice, B, SIZEB * sizeof(int), cudaMemcpyHostToDevice );
+	cudaMemcpy( A_idxDevice, A_idx, SIZEA * sizeof(int), cudaMemcpyHostToDevice );
+	cudaMemcpy( B_idxDevice, B_idx, SIZEB * sizeof(int), cudaMemcpyHostToDevice );
 
 	// Lancer le kernel pour trouver une partition des tableaux
 	// (SIZEA+SIZEB) / N_BLOCKS elements à traiter pour chaque bloc dans le second kernel

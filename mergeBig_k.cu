@@ -26,6 +26,8 @@ __global__ void pathBig_k(int *a, int *b, int *m, int *Aindex, int *Bindex){
     // i prend la valeur de cette diagonale
     const int i = (sizeA+sizeB)/N_BLOCKS * blockIdx.x;
     
+    if(blockIdx.x == blockDim.x - 1)
+    
 	int K[2];
 	int P[2];
 	int Q[2];
