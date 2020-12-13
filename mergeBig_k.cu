@@ -5,8 +5,8 @@
 
 #define X 0
 #define Y 1
-#define SIZEA 2024
-#define SIZEB 2048
+#define SIZEA 1123
+#define SIZEB 2223
 
 #define N_BLOCKS 64
 #define N_THREADS 32
@@ -20,7 +20,6 @@ __global__ void pathBig_k(const int *A, const int *B, int *Aindex, int *Bindex, 
         Bindex[morceaux] = sizeB;
         return;
     }
-    
     
 	int i = (sizeA + sizeB)/morceaux * blockIdx.x;
 	int K[2];
@@ -94,6 +93,8 @@ __global__ void mergeBig_k(int *A, int *B, int *M, int *Aindex, int *Bindex){
     biaisAi = 0;
     biaisBi = 0;
     
+    biaisA = 0;
+    biaisB = 0;
     // Merge fenêtre par fenêtre
     for(int k=0; k < nb_windows; k++){
         
