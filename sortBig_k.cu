@@ -170,25 +170,22 @@ __global__ void mergeBig_k(int *A, int *B, int *M, int *Aindex, int *Bindex){
 
 
 
-void sortBig_k(int *a, int sizeA){
+void sortBig_k(int *a_gpu, int sizeA){
     
+    // Cas limites
     if(sizeA == 1)
         return;
-    if(sizeA == 2){
-        if(a[0] > a[1]){
-            int temp = a[1];
-            a[1] = a[0];
-            a[0] = temp;
-        }
-        return;
-    }
     
+    // On découpe le tableau a en 2
     int sizeA0 = (int) sizeA/2;
     int sizeA1 = sizeA - sizeA0;
     
-    sortBig_k(a, sizeA0);
-    sortBig_k(a + sizeA0, sizeA1);
+    // On appelle récursivement sortBig_k sur les deux sous tableaux de a
+    // En sortie on récupère deux tableaux triés donc on peut lancer pathBig et mergeBig
+    sortBig_k(a_gpu, sizeA0);
+    sortBig_k(a_gpu + sizeA0, sizeA1);
     
+    // Déclaration 
 	int *a0_gpu, *a1_gpu, *m_gpu, *A0index, *A1index;
 
 	// Allocation de la mémoire globale du GPU
@@ -198,13 +195,13 @@ void sortBig_k(int *a, int sizeA){
 	cudaMalloc( (void**) &A0index, (N_BLOCKS+1) * sizeof(int) );
 	cudaMalloc( (void**) &A1index, (N_BLOCKS+1) * sizeof(int) );
 
-	cudaMemcpy(a0_gpu, a,          sizeA0 * sizeof(int), cudaMemcpyHostToDevice );
-	cudaMemcpy(a1_gpu, a + sizeA0, sizeA1 * sizeof(int), cudaMemcpyHostToDevice );
+	cudaMemcpy(a0_gpu, a_gpu,          sizeA0 * sizeof(int), cudaMemcpyDeviceToDevice );
+	cudaMemcpy(a1_gpu, a_gpu + sizeA0, sizeA1 * sizeof(int), cudaMemcpyDeviceToDevice );
     
 	pathBig_k<<<N_BLOCKS, 1>>>(a0_gpu, a1_gpu, A0index, A1index, sizeA0, sizeA1, N_BLOCKS);
 	mergeBig_k<<<N_BLOCKS, N_THREADS>>>(a0_gpu, a1_gpu, m_gpu, A0index, A1index);
     
-    cudaMemcpy(a, m_gpu, sizeA * sizeof(int), cudaMemcpyDeviceToHost );
+    cudaMemcpy(a_gpu, m_gpu, sizeA * sizeof(int), cudaMemcpyDeviceToDevice );
     
     cudaFree(a0_gpu);
 	cudaFree(a1_gpu);
@@ -219,12 +216,17 @@ int main(){
     srand(time(NULL));
 	// Allocation de la mémoire, remplissage du tableau
 	int *A = (int*) malloc(sizeof(int) * SIZEA);
+    int *A_gpu;
 	for (int i = 0; i < SIZEA; i++){
 		A[i] = rand();
 	}
-
 	
-	sortBig_k(A,SIZEA);
+	cudaMalloc( (void**) &A_gpu, SIZEA * sizeof(int) );
+	cudaMemcpy(A_gpu, A, SIZEA * sizeof(int), cudaMemcpyHostToDevice);
+
+	sortBig_k(A_gpu,SIZEA);
+    
+    cudaMemcpy(A, A_gpu, SIZEA * sizeof(int), cudaMemcpyDeviceToHost);
 
 	for (int i = 0; i < SIZEA; i ++){
 		printf("A[%d] = %d\n", i, A[i]);
