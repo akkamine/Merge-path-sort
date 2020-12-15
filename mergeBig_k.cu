@@ -1,164 +1,127 @@
- #include <stdlib.h>
-#include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <time.h>
+#include <math.h>
 
-
-#define N 1000
-#define Nb 1200
-#define NTPB 512
-#define N_BLOCKS 4
 #define X 0
 #define Y 1
-/*********************************************/
-/************* PATH BIG K ********************/
-/*********************************************/
+#define SIZEA 1123
+#define SIZEB 2223
 
-__global__ void pathBig_k(int *a, int *b, int *Aindex, int *Bindex, int sizeA, int sizeB){
-    // indexA et indexB sont stockés en mémoire globale
-    // ils permettent de stocker les points de ruptures entre threads
+#define N_BLOCKS 64
+#define N_THREADS 32
+
+__global__ void pathBig_k(const int *A, const int *B, int *Aindex, int *Bindex, const int sizeA, const int sizeB, const int morceaux){
+
+    if(blockIdx.x == 0){
+        Aindex[0] = 0;
+        Bindex[0] = 0;
+        Aindex[morceaux] = sizeA;
+        Bindex[morceaux] = sizeB;
+        return;
+    }
+    
+	int i = (sizeA + sizeB)/morceaux * blockIdx.x;
 	int K[2];
 	int P[2];
-	int Q[2];
-	//int N_BLOCKS = (sizeA+sizeB+NTPB-1)/NTPB;
-	int i = threadIdx.x + blockIdx.x * blockDim.x;    
-	//int i = blockIdx.x+1;
-   // int i = (sizeA + sizeB)/N_BLOCKS * (blockIdx.x + 1);
-	//if (blockIdx.x == N_BLOCKS-1){
-	//	return;
-	//}
-	//printf("i = %d\n",i);
-    
-    // Déterminer condition limite. A priori c'est ça
-	if(i>=sizeA+sizeB)
-        return;
-    
-    // Exécuté par un seul thread par block
-    if(i%NTPB != 0)
-        return;
-    
-    if(i>sizeA){
-        K[0] = i - sizeA;
-        K[1] = sizeA;
-        P[0] = sizeA;
-        P[1] = i - sizeA;
-    }
-    else{
-        K[0] = 0; K[1] = i;
-        P[0] = i; P[1] = 0;
-    }
+    int Q[2];
+    int offset;
 
-    while(1){
-   
-        int offset = (K[1]-P[1])/2;
-        Q[0] = K[0] + offset;
-        Q[1] = K[1] - offset;
+	if (i > sizeA) {
+		K[X] = i - sizeA;
+		K[Y] = sizeA;
+		P[X] = sizeA;
+		P[Y] = i - sizeA;
+	}
+	else {
+		K[X] = 0;
+		K[Y] = i;
+		P[X] = i;
+		P[Y] = 0;
+	}
 
-        if(Q[1] >= 0 && Q[0] <= sizeB && (Q[1] == sizeA || Q[0] == 0 || a[ Q[1] ] > b[ Q[0]-1 ]) ){
-            if(Q[0] == sizeB || Q[1] == 0 || a[ Q[1]-1 ] <= b[ Q[0] ]){
-                Aindex[blockIdx.x] = Q[0];
-                Bindex[blockIdx.x] = Q[1];
-                printf("threadIdx: %d >>>>> blockIdx.x = %d | Aindex[%d] = %d | Bindex[%d] = %d \n", i, blockIdx.x, blockIdx.x, Q[0], blockIdx.x, Q[1]);
-                break;
-            }
-            else{
-                K[0] = Q[0] + 1;
-                K[1] = Q[1] - 1;
-            }
-        }
-        else{
-            P[0] = Q[0] - 1;
-            P[1] = Q[1] + 1;
-        }
-    }
+	while (1) {
+		offset = (abs(K[Y] - P[Y]))/2;
+		Q[X] = K[X] + offset;
+		Q[Y] = K[Y] - offset;
+
+		if (Q[Y] >= 0 && Q[X] <= sizeB && (Q[Y] == sizeA || Q[X] == 0 || A[Q[Y]] > B[Q[X]-1])) {
+			if (Q[X] == sizeB || Q[Y] == 0 || A[Q[Y]-1] <= B[Q[X]]) {
+				Aindex[blockIdx.x] = Q[Y];
+				Bindex[blockIdx.x] = Q[X];
+				break ;
+			}
+			else {
+				K[X] = Q[X] + 1;
+				K[Y] = Q[Y] - 1;
+			}
+		}
+		else {
+			P[X] = Q[X] - 1;
+			P[Y] = Q[Y] + 1;
+		}
+	}
 }
 
+__global__ void mergeBig_k(int *A, int *B, int *M, int *Aindex, int *Bindex){
+    
+    int i = threadIdx.x;
 
-/**********************************************/
-/************* MERGE BIG K ********************/
-/**********************************************/
+	// Mémoire shared sur laquelle on va travailler
+	__shared__ int A_shared[N_THREADS];
+	__shared__ int B_shared[N_THREADS];
 
-__global__ void mergeBig_k(int *A, int *B, int *M, int *A_idx, int *B_idx, int SIZEA, int SIZEB){
+    // Biais de tour correspondant à un thread
+    int biaisAi; // Décalage induit ou non par le thread (0 ou 1)
+    int biaisBi;
+    
+    // Biais totaux
+    __shared__ int biaisA;
+    __shared__ int biaisB;
+    
+	int startABlock = Aindex[blockIdx.x];
+	int endABlock = Aindex[blockIdx.x+1];
+	int startBBlock = Bindex[blockIdx.x];
+	int endBBlock = Bindex[blockIdx.x+1];
 
-	// Mémoire shared sur laquelle nous allons travaillé
-	extern __shared__ int A_shared[];
-	extern __shared__ int B_shared[];
+    // Taille des partitions de A et B
+    int sABlock = endABlock - startABlock;
+    int sBBlock = endBBlock - startBBlock;
 
-	__shared__ int biaisA;
-	__shared__ int biaisB;
+    // Nombre de fenêtres glissantes
+	int nb_windows = (blockDim.x - 1 + sABlock + sBBlock) / blockDim.x;
+    biaisAi = 0;
+    biaisBi = 0;
+    
+    biaisA = 0;
+    biaisB = 0;
+    // Merge fenêtre par fenêtre
+    for(int k=0; k < nb_windows; k++){
+        
+        // Somme des biais de A et de B
+        biaisA += __syncthreads_count(biaisAi);
+        biaisB += __syncthreads_count(biaisBi);
+        
+        // Réinitialisation des biais de thread
+        biaisAi = 0;
+        biaisBi = 0;
+    
+        // Copie en mémoire shared
+		if (startABlock + biaisA + i < endABlock)
+			A_shared[i] = A[startABlock + biaisA + i];
 
-	// (endA-startA) : taille de A dans la partition
-	// (endB-startB) : taille de B dans la partition
-	int startA, endA;
-	int startB, endB;
-	
-	// On récupére les index du début et de la fin de A et B par rapport au tableau global
-	if (blockIdx.x == 0){
-		startA = 0;
-		endA = A_idx[blockIdx.x];
-		startB = 0;
-		endB = B_idx[blockIdx.x];
-	}
-	else if (blockIdx.x == N_BLOCKS-1){
-		startA = A_idx[blockIdx.x-1];
-		endA = SIZEA;
-		startB = B_idx[blockIdx.x-1];
-		endB = SIZEB;
-	}
-	else{
-		startA = A_idx[blockIdx.x-1];
-		endA = A_idx[blockIdx.x];
-		startB = B_idx[blockIdx.x-1];
-		endB = B_idx[blockIdx.x];
-	}
+		if (startBBlock + biaisB + i < endBBlock)
+			B_shared[i] = B[startBBlock + biaisB + i];	
 
-	// Notations de l'article
-	// Il y a N élements à fusioner
-	// N = SIZEA + SIZEB 
-	// Chaque partition contient N/p éléments, chaque bloc traite une partition
-	// N / p = (endB-startB) + (endA-startA) = (SIZEA+SIZEB) / N_BLOCKS
-	// Si Z est le nombre de threads
-	// On va fusioner Z éléments à la fois
-	// Donc on a besoin de le faire (N / p) / Z fois
-	// On va faire bouger la fenetre glissante (N / p) / Z fois
-	int iter_max = (blockDim.x - 1 + (endB-startB) + (endA-startA)) / blockDim.x;
-	int iter = 0;
-
-	biaisA = 0;
-	biaisB = 0;
-	do{
-		// Pour synchroniser les biais
+		// Synchronisation de la mémoire shared
 		__syncthreads();
-
-		// Chargement des valeurs dans la mémoire shared
-		if (startA + biaisA + threadIdx.x < endA){
-			A_shared[threadIdx.x] = A[startA + biaisA + threadIdx.x];
-		}
-
-		if (startB + biaisB + threadIdx.x < endB){
-			B_shared[threadIdx.x] = B[startB + biaisB + threadIdx.x];	
-		}
-
-		// Pour synchroniser la mémoire shared
-		__syncthreads();
-
-		// Récuperer la taille de la fenetre glissante
-		// En général c'est le nombre de threads (blockDim.x), i.e On est dans un carré Z * Z normalement
-		// Mais la taille peut être inférieure si il y a moins de blockDim.x éléments à charger
-		int sizeAshared = endA-startA - biaisA;
-		int sizeBshared = endB-startB - biaisB;
-		if (sizeAshared < 0)
-			sizeAshared = 0;
-		if (sizeAshared > blockDim.x && sizeAshared != 0)
-			sizeAshared = blockDim.x;
-		if (sizeBshared < 0)
-			sizeBshared = 0;
-		if (sizeBshared > blockDim.x && sizeBshared != 0)
-			sizeBshared = blockDim.x;
-
-		// Binary search
-		int i = threadIdx.x;
-
-		if (i < sizeAshared + sizeBshared){
+        
+        // Taille des sous tableaux en mémoire shared
+		int sizeAshared = min(blockDim.x, max(0, sABlock - biaisA));
+		int sizeBshared = min(blockDim.x, max(0, sBBlock - biaisB));
+        
+		// Recherche dichotomique
+		if (i < (sizeAshared + sizeBshared)){
 			int K[2];
 			int P[2];
 
@@ -181,16 +144,14 @@ __global__ void mergeBig_k(int *A, int *B, int *M, int *A_idx, int *B_idx, int S
 
 				if (Q[Y] >= 0 && Q[X] <= sizeBshared && (Q[Y] == sizeAshared || Q[X] == 0 || A_shared[Q[Y]] > B_shared[Q[X]-1])) {
 					if (Q[X] == sizeBshared || Q[Y] == 0 || A_shared[Q[Y]-1] <= B_shared[Q[X]]) {
-						int idx = startA + startB + i + iter * blockDim.x;
 						if (Q[Y] < sizeAshared && (Q[X] == sizeBshared || A_shared[Q[Y]] <= B_shared[Q[X]]) ) {
-							M[idx] = A_shared[Q[Y]];
-							atomicAdd(&biaisA, 1);	// Biais à incrementer 
+							M[i + startABlock + startBBlock + k * blockDim.x] = A_shared[Q[Y]];
+                            biaisAi += 1;
 						}
 						else {
-							M[idx] = B_shared[Q[X]];
-							atomicAdd(&biaisB, 1); // Biais à incrementer
+							M[i + startABlock + startBBlock + k * blockDim.x] = B_shared[Q[X]];
+                            biaisBi += 1;
 						}
-						printf("blockIdx.x = %d threadIdx.x = %d idx = %d m = %d biaisA = %d\n", blockIdx.x, threadIdx.x, idx, M[idx], biaisA);
 						break ;
 					}
 					else {
@@ -204,72 +165,55 @@ __global__ void mergeBig_k(int *A, int *B, int *M, int *A_idx, int *B_idx, int S
 				}
 			}
 		}
-		iter = iter + 1;
-	} while(iter < iter_max);
+	}
 }
 
-int main(void){
-    int sizeA = N;
-    int sizeB = Nb;
+
+int main(){
+    int i;
     
-	int *A;
-	int *B;
-	int *M;
-	//int nb_blocks = (sizeA+sizeB+NTPB-1)/NTPB; // A vérifier
-
-	float time= 0.;
-	cudaEvent_t start, stop;
-	cudaEventCreate(&start);
-	cudaEventCreate(&stop);
-
-	A = (int*) malloc(sizeof(int)*sizeA);
-	B = (int*) malloc(sizeof(int)*sizeB);
-	M = (int*) calloc(sizeof(int),sizeA+sizeB);
-
-	for (int i = 0; i < sizeA; i++)
-		A[i] = i*2+1;
+    // Allocation et replissage des tableaux d'entrée
+    int A_cpu[SIZEA];
+    int B_cpu[SIZEB];
     
-    for (int i = 0; i < sizeB; i++)
-		B[i] = i*2;
+	for (i = 0; i < SIZEA; i++)
+		A_cpu[i] = 2 * i;
+	
+	for (i = 0; i < SIZEB; i++)
+		B_cpu[i] = 2 * i + 1;
+	
+    // Allocation du tableau de sortie
+	int M_cpu[SIZEA + SIZEB];			
 
-	int *A_gpu;
-	int *B_gpu;
-	int *M_gpu;
-    
-    int *Aindex, *Bindex;
+    // Déclaration et allocation de la mémoire du GPU
+	int *A_gpu, *B_gpu, *M_gpu, *Aindex, *Bindex;
+	cudaMalloc( (void**) &A_gpu, SIZEA * sizeof(int) );
+	cudaMalloc( (void**) &B_gpu, SIZEB * sizeof(int) );
+	cudaMalloc( (void**) &M_gpu, (SIZEA+SIZEB) * sizeof(int) );
+	cudaMalloc( (void**) &Aindex, (N_BLOCKS + 1) * sizeof(int) );
+	cudaMalloc( (void**) &Bindex, (N_BLOCKS + 1) * sizeof(int) );
 
-	cudaMalloc(&A_gpu, sizeA * sizeof(int));
-	cudaMalloc(&B_gpu, sizeB * sizeof(int));
-	cudaMalloc(&M_gpu, (sizeA+sizeB) * sizeof(int));
+	// Copie des tableaux CPU vers GPU
+	cudaMemcpy( A_gpu, A_cpu, SIZEA * sizeof(int), cudaMemcpyHostToDevice );
+	cudaMemcpy( B_gpu, B_cpu, SIZEB * sizeof(int), cudaMemcpyHostToDevice );
 
-    cudaMalloc(&Aindex, N_BLOCKS * sizeof(int));
-	cudaMalloc(&Bindex, N_BLOCKS * sizeof(int));
+	// Kernel de partitionnement des tableaux par blocks
+	pathBig_k<<<N_BLOCKS, 1>>>(A_gpu, B_gpu, Aindex, Bindex, SIZEA, SIZEB, N_BLOCKS);
 
-	cudaMemcpy(A_gpu, A, sizeA * sizeof(int), cudaMemcpyHostToDevice);
-	cudaMemcpy(B_gpu, B, sizeB * sizeof(int), cudaMemcpyHostToDevice);
+	// Kernel de merge des partitions sur chaque block
+	mergeBig_k<<<N_BLOCKS, N_THREADS>>>(A_gpu, B_gpu, M_gpu, Aindex, Bindex);
 
-	cudaEventRecord(start);
-    
-    pathBig_k<<<N_BLOCKS,1>>>(A_gpu, B_gpu, Aindex, Bindex, sizeA, sizeB);   
-    mergeBig_k<<<N_BLOCKS,NTPB>>>(A_gpu, B_gpu, M_gpu, Aindex, Bindex, sizeA, sizeB);
-
-	cudaEventRecord(stop);
-	cudaEventSynchronize(stop);
-	cudaEventElapsedTime(&time, start, stop);
-	printf("mergeBig_k: temps écoulé = %f secs\n", time/1000);
-
-
-	cudaMemcpy(M, M_gpu, (N+Nb)*sizeof(int), cudaMemcpyDeviceToHost);
-	for (int i = 0; i < N+Nb; i++)
-        printf("M[%d] = %d\n", i, M[i]);
-
-
-	free(A);
-	free(B);
-	free(M);
+	// Copie du tableau résultat GPU vers CPU et affichage
+	cudaMemcpy( M_cpu, M_gpu, (SIZEA+SIZEB) * sizeof(int), cudaMemcpyDeviceToHost );
+	for (int i = 0; i < SIZEA+SIZEB; i ++)
+		printf("M[%d] = %d\n", i, M_cpu[i]);
+	
+	// Liberation de la mémoire
 	cudaFree(A_gpu);
 	cudaFree(B_gpu);
 	cudaFree(M_gpu);
-	cudaEventDestroy(start);
-	cudaEventDestroy(stop);
+	cudaFree(Aindex);
+	cudaFree(Bindex);
+
+	return 0;
 }
