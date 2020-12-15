@@ -9,8 +9,8 @@
 __global__ void mergeSmallBatch_k(int *a, int *b, int *m, int *sizeA, int *sizeB, const int d){
 
 	const int tidx = threadIdx.x % d;				//Num de la diagonal dans le tableau indice Qt
-	const int Qt = (threadIdx.x - tidx) / d;			//Num du tableau par rapport au tableau shared
-	const int gbx = Qt + blockIdx.x * (blockDim.x / d);		//Num du tableau par rapport au tableau global
+	const int Qt = (threadIdx.x - tidx) / d;			//Num du tableau dans le tableau shared
+	const int gbx = Qt + blockIdx.x * (blockDim.x / d);		//Num du tableau dans le tableau global
 	//printf("blockId.x = %d | threadIdx. x = %d | tidx = %d | Qt = %d | gbx = %d\n", blockIdx.x, threadIdx.x, tidx, Qt, gbx);
 	
 	//Taille du tableau en cours de traitement
